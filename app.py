@@ -1,12 +1,11 @@
 from pathlib import Path
+import importlib.util
 
 import numpy as np
 import streamlit as st
 from PIL import Image
 
-from vae_scorer import load_vae, score_digit
 from line_scorer import score_line
-from vae_handwriting_model import HandwritingQualityAssessor
 from bayesian_handwriting_model import BayesianHandwritingAssessor
 from game_engine import load_profile, save_profile, current_tasks, evaluate_task, on_task_completed
 from preprocess import preprocess_digit_image
@@ -85,13 +84,14 @@ def _llm_tips(prompt: str, backend: str, model_ref: str) -> str | None:
 with st.sidebar:
     st.header("Settings")
     mode = st.selectbox("Mode", ["Analyze", "Play"], index=0)
-    options = [
-        "Digit (MNIST)",
-        "Line",
-        "Quality (VAE)",
-        "Quality (Bayesian)",
-    ]
+    # Detect if PyTorch is available to enable Digit and VAE Quality modes
+    TORCH_AVAILABLE = importlib.util.find_spec("torch") is not None
+    options = ["Line", "Quality (Bayesian)"]
+    if TORCH_AVAILABLE:
+        options = ["Digit (MNIST)", "Line", "Quality (VAE)", "Quality (Bayesian)"]
     analysis_type = st.selectbox("Select Analysis Type", options, index=0)
+    if not TORCH_AVAILABLE:
+        st.caption("PyTorch not available in this environment; Digit and Quality (VAE) are disabled.")
     # Profile for Play mode
     if mode == "Play":
         player_name = st.text_input("Player name", value="Player1")
@@ -157,6 +157,12 @@ if uploaded is not None:
 
     if st.button("Analyze" if mode == "Analyze" else "Submit Task"):
         if analysis_type == "Digit (MNIST)":
+            # Lazy import to avoid torch dependency on environments without PyTorch
+            try:
+                from vae_scorer import load_vae, score_digit  # type: ignore
+            except Exception as e:
+                st.error(f"Digit scoring unavailable: {e}")
+                st.stop()
             # Try to load VAE only once and cache it
             @cache_resource
             def _load_cached_vae(path: str):
@@ -287,6 +293,12 @@ if uploaded is not None:
                     for s in tips:
                         st.write("- "+s)
         elif analysis_type == "Quality (VAE)":
+            # Lazy import to avoid torch dependency on environments without PyTorch
+            try:
+                from vae_handwriting_model import HandwritingQualityAssessor  # type: ignore
+            except Exception as e:
+                st.error(f"VAE handwriting quality unavailable: {e}")
+                st.stop()
             @cache_resource
             def _load_hq_vae(path: str):
                 assessor = HandwritingQualityAssessor()
